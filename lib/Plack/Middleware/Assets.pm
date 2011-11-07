@@ -79,7 +79,7 @@ sub call {
     }
 
     $env->{'psgix.assets'} ||= [];
-    my $url = '/_asset/' . $self->key;
+    my $url = '/_asset/' . $self->key . '.' . $self->type;
     push( @{ $env->{'psgix.assets'} }, $url );
     return $self->serve if $env->{PATH_INFO} eq $url;
     return $self->app->($env);
