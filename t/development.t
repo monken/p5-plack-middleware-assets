@@ -13,6 +13,7 @@ my $built = 0;
     require Plack::Middleware::Assets;
     my $builder = \&Plack::Middleware::Assets::_build_content;
     *Plack::Middleware::Assets::_build_content = sub { ++$built; goto $builder; };
+    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(mtime minify type); }
 }
 
 my $mw = Plack::Middleware::Assets->new(

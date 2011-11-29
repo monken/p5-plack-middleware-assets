@@ -11,6 +11,7 @@ BEGIN {
     $time = Time::Local::timegm(37, 50, 14, 29, 11-1, 2011);
     *CORE::GLOBAL::time = sub () { $time };
     require Plack::Middleware::Assets;
+    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(mtime minify type); }
 }
 
 my $app = builder {
