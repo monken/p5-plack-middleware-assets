@@ -10,6 +10,7 @@ my $app = builder {
     enable "Assets",
         files  => [<t/static/*.css>],
         minify => 0;
+    enable "Assets", files => [<t/static/*.js>], minify => 0, type => 'css';
     return sub {
         my $env = shift;
         [   200,
@@ -20,6 +21,7 @@ my $app = builder {
 };
 
 my $assets;
+my $total = 3;
 
 my %test = (
     client => sub {
@@ -28,7 +30,7 @@ my %test = (
             my $res = $cb->( GET 'http://localhost/' );
             is( $res->code, 200 );
             $assets = [ split( $/, $res->content ) ];
-            is( @$assets, 2 );
+            is( @$assets, $total );
         }
 
         {
@@ -46,6 +48,19 @@ my %test = (
 css1
 /* t/static/css2.css */
 css2}
+            );
+        }
+
+        {
+            my $res = $cb->( GET 'http://localhost' . $assets->[2] );
+            is( $res->code,         200 );
+            is( $res->content_type, 'text/css', 'type set explicitly' );
+            is( $res->content,  qq</* t/static/js1.js */
+function() {
+    foo
+};
+/* t/static/js2.js */
+js2()>,
             );
         }
     },
