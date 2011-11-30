@@ -5,7 +5,7 @@ use strict;
 use warnings;
 
 use base 'Plack::Middleware';
-__PACKAGE__->mk_accessors(qw(content minify files key mtime type expires));
+use Plack::Util::Accessor qw( filename_comments content minify files key mtime type expires );
 
 use Digest::MD5 qw(md5_hex);
 use JavaScript::Minifier::XS ();
@@ -34,12 +34,13 @@ sub new {
 sub _build_content {
     my $self = shift;
     local $/;
+    $self->filename_comments(1) unless defined $self->filename_comments;
     $self->content(
         join(
             "\n",
             map {
                 open my $fh, '<', $_ or die "$_: $!";
-                "/* $_ */\n" . <$fh>
+                ($self->filename_comments ? "/* $_ */\n" : '') . <$fh>
                 } @{ $self->files }
         )
     );
@@ -148,6 +149,11 @@ to the files.
 =head1 CONFIGURATIONS
 
 =over 4
+
+=item filename_comments
+
+Boolean.  By default files are prepended with C</* filename */\n>
+before being concatenated.
 
 =item files
 

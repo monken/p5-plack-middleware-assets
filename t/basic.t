@@ -11,7 +11,7 @@ BEGIN {
     $time = Time::Local::timegm(37, 50, 14, 29, 11-1, 2011);
     *CORE::GLOBAL::time = sub () { $time };
     require Plack::Middleware::Assets;
-    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(mtime minify type); }
+    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(filename_comments mtime minify type); }
 }
 
 my $app = builder {
@@ -25,7 +25,8 @@ my $app = builder {
 
     my $d = 't/static';
     enable "Assets", files => ["$d/l1.less"], type => 'text/less';
-    enable "Assets", files => ["$d/l2.less"], type => 'text/less', minify => 1;
+    enable "Assets", files => ["$d/l2.less"], type => 'text/less',
+        filename_comments => 0, minify => 1;
     enable "Assets", files => ["$d/l3.less"], type => 'text/less', minify => 'css';
     enable "Assets", files => [glob "$d/l*.less"], type => 'css',  minify => 'js';
     return sub {
@@ -110,12 +111,11 @@ LESS
             is( $res->code,         200 );
             is( $res->content_type, 'text/less', 'arbitrary content type' );
             is( $res->content, <<LESS,
-/* t/static/l2.less */
 .l2 {
   top: 2;
 }
 LESS
-            'do not know how to minify unknown type');
+            'do not know how to minify unknown type; no filename comment');
         }
 
         {
