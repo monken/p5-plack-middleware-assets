@@ -69,9 +69,12 @@ sub _build_content {
 sub _minify {
     my $self = shift;
     no strict 'refs';
+    my $minify = $self->minify;
     return $self->content unless
-        my $method = $minifiers{ $self->minify } || $minifiers{ $self->type };
-    return $method->( $self->content );
+        my $method = ref($minify) eq 'CODE' ? $minify :
+            $minifiers{ $minify } || $minifiers{ $self->type };
+    local $_ = $self->content;
+    return $method->( $_ );
 }
 
 sub serve {
@@ -143,6 +146,11 @@ __END__
           filter => sub { Text::Sass->new->sass2css( shift ) },
           minify => 'css';
 
+      # pass a coderef for a custom minifier
+      enable Assets =>
+          files  => [<static/any/*.txt>],
+          filter => sub { uc shift },
+          minify => sub { s/ +/\t/g; $_ };
       $app;
   };
 
@@ -195,8 +203,11 @@ This will be called before it is minified (if C<minify> is enabled).
 
 Value to indicate whether to minify or not. Defaults to C<1>.
 
-Besides a boolean you can also set this to a string to use a predefined
-minifier (which can be useful if you change the type):
+Besides a boolean this can also be a string to use a predefined
+minifier (which can be useful if you change the type).
+Currently minifiers are defined for C<css> and C<js>.
+
+This can also be a coderef which works the same as L</filter>.
 
 =item type
 

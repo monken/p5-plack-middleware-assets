@@ -33,6 +33,8 @@ my $app = builder {
         filename_comments => 0, minify => 0, filter => sub { uc shift };
     enable "Assets", files => ["$d/l2.less"], type => 'text/plain',
         filename_comments => 0, minify => 0, filter => sub { tr/lo2/pi9/; $_ };
+    enable "Assets", files => ["$d/l3.less"], type => 'text/less',
+        filename_comments => 0, minify => sub { s/\s+/\t/g; $_ }, filter => sub { uc };
     return sub {
         my $env = shift;
         [   200,
@@ -43,7 +45,7 @@ my $app = builder {
 };
 
 my $assets;
-my $total = 10;
+my $total = 11;
 
 my %test = (
     client => sub {
@@ -152,6 +154,14 @@ LESS
             is( $res->content_type, 'text/plain', 'arbitrary content type' );
             is( $res->content, qq<.p9 {\n  tip: 9;\n}\n>,
             'custom filter using $_, no filename comment');
+        }
+
+        {
+            my $res = $cb->( GET 'http://localhost' . $assets->[10] );
+            is( $res->code,         200 );
+            is( $res->content_type, 'text/less', 'arbitrary content type' );
+            is( $res->content, qq<.L3\t{\tTOP:\t3;\t}\t>,
+            'custom filter, custom minifier');
         }
 
     },
