@@ -11,7 +11,7 @@ BEGIN {
     $time = Time::Local::timegm(37, 50, 14, 29, 11-1, 2011);
     *CORE::GLOBAL::time = sub () { $time };
     require Plack::Middleware::Assets;
-    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(filename_comments mtime minify type); }
+    if( $ENV{DEVEL_COVER_72819} && $INC{'Devel/Cover.pm'} ){ no warnings 'redefine';  eval "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };" for qw(filename_comments filter mtime minify type); }
 }
 
 my $app = builder {
@@ -29,6 +29,10 @@ my $app = builder {
         filename_comments => 0, minify => 1;
     enable "Assets", files => ["$d/l3.less"], type => 'text/less', minify => 'css';
     enable "Assets", files => [glob "$d/l*.less"], type => 'css',  minify => 'js';
+    enable "Assets", files => ["$d/l1.less"], type => 'text/plain',
+        filename_comments => 0, minify => 0, filter => sub { uc shift };
+    enable "Assets", files => ["$d/l2.less"], type => 'text/plain',
+        filename_comments => 0, minify => 0, filter => sub { tr/lo2/pi9/; $_ };
     return sub {
         my $env = shift;
         [   200,
@@ -39,7 +43,7 @@ my $app = builder {
 };
 
 my $assets;
-my $total = 8;
+my $total = 10;
 
 my %test = (
     client => sub {
@@ -132,6 +136,22 @@ LESS
             is( $res->content_type, 'text/css' );
             is( $res->content, qq<.l1{top:1;}\n.l2{top:2;}\n.l3{top:3;}>,
             'minify using alternate minifier');
+        }
+
+        {
+            my $res = $cb->( GET 'http://localhost' . $assets->[8] );
+            is( $res->code,         200 );
+            is( $res->content_type, 'text/plain', 'arbitrary content type' );
+            is( $res->content, qq<.L1 {\n  TOP: 1;\n}\n>,
+            'custom filter using @_, no filename comment');
+        }
+
+        {
+            my $res = $cb->( GET 'http://localhost' . $assets->[9] );
+            is( $res->code,         200 );
+            is( $res->content_type, 'text/plain', 'arbitrary content type' );
+            is( $res->content, qq<.p9 {\n  tip: 9;\n}\n>,
+            'custom filter using $_, no filename comment');
         }
 
     },

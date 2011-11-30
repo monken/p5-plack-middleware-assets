@@ -5,7 +5,7 @@ use strict;
 use warnings;
 
 use base 'Plack::Middleware';
-use Plack::Util::Accessor qw( filename_comments content minify files key mtime type expires );
+use Plack::Util::Accessor qw( filename_comments filter content minify files key mtime type expires );
 
 use Digest::MD5 qw(md5_hex);
 use JavaScript::Minifier::XS ();
@@ -55,6 +55,10 @@ sub _build_content {
     )
         unless ( defined $self->minify );
 
+    if( my $filter = $self->filter ){
+        local $_ = $self->content;
+        $self->content( $filter->( $_ ) );
+    }
     $self->content( $self->_minify ) if $self->minify;
 
     $self->key( md5_hex( $self->content ) );
@@ -123,6 +127,25 @@ __END__
       $app;
   };
 
+  # or customize your assets as desired:
+
+  builder {
+      # concatenate any arbitrary content type
+      enable Assets =>
+          files  => [<static/less/*.less>],
+          type   => 'text/less',
+          minify => 'css';
+
+      # concatenate sass files and transform them into css
+      enable Assets =>
+          files  => [<static/sass/*.sass>],
+          type   => 'text/css',
+          filter => sub { Text::Sass->new->sass2css( shift ) },
+          minify => 'css';
+
+      $app;
+  };
+
   # $env->{'psgix.assets'}->[0] points at the first asset.
 
 =head1 DESCRIPTION
@@ -159,6 +182,15 @@ before being concatenated.
 
 Files to concatenate.
 
+=item filter
+
+A coderef that can process/transform the content.
+
+The current content will be passed in as C<$_[0]>
+and also available via C<$_> for convenience.
+
+This will be called before it is minified (if C<minify> is enabled).
+
 =item minify
 
 Value to indicate whether to minify or not. Defaults to C<1>.
@@ -166,17 +198,11 @@ Value to indicate whether to minify or not. Defaults to C<1>.
 Besides a boolean you can also set this to a string to use a predefined
 minifier (which can be useful if you change the type):
 
-    enable Assets =>
-        files  => [<*.less>],
-        type   => 'text/less',
-        minify => 'css';
-
 =item type
 
 Type of the asset.
 Predefined types include C<css> and C<js>.
 If set to an arbitrary type this will become the C<Content-Type>.
-(See the example for L</minify>.)
 
 An attempt to guess the correct value is made from the file extensions
 but this can be set explicitly if you are using non-standard file extensions.
