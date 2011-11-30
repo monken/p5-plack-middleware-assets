@@ -157,7 +157,7 @@ the C<mtime> of the most recently changed file. The C<Expires>
 header is set to one month in advance. Set
 L</expires> to change the time of expiry.
 
-The concatented and minified content is cached in memory.
+The concatenated and minified content is cached in memory.
 
 =head1 DEVELOPMENT MODE
 
