@@ -34,13 +34,19 @@ sub new {
 sub _build_content {
     my $self = shift;
     local $/;
+
     $self->filename_comments(1) unless defined $self->filename_comments;
+    my $comments = $self->filename_comments;
+    # use default comment format unless format was specified
+    $comments = $self->filename_comments("/* %s */\n")
+        if $comments && $comments !~ /%s/;
+
     $self->content(
         join(
             "\n",
             map {
                 open my $fh, '<', $_ or die "$_: $!";
-                ($self->filename_comments ? "/* $_ */\n" : '') . <$fh>
+                ($comments ? sprintf($comments, $_) : '') . <$fh>
                 } @{ $self->files }
         )
     );
@@ -183,8 +189,15 @@ to the files.
 
 =item filename_comments
 
-Boolean.  By default files are prepended with C</* filename */\n>
+By default files are prepended with C</* filename */\n>
 before being concatenated.
+
+Set this to false to disable these comments.
+
+If set to a string containing a C<%s>
+it will be passed to C<sprintf> with the file name.
+
+    filename_comments => "# %s\n"
 
 =item files
 
