@@ -6,7 +6,7 @@ use HTTP::Request::Common;
 use Plack::Test;
 
 sub test_file {
-    my ($file, $content) = @_;
+    my ( $file, $content ) = @_;
     return eval {
         my $app = builder {
             enable "Assets", files => ["t/static/$file"];
@@ -33,7 +33,7 @@ sub test_file {
 
                 {
                     my $res = $cb->( GET 'http://localhost' . $assets->[0] );
-                    is( $res->code,         200 );
+                    is( $res->code, 200 );
                     is( $res->content, $content, 'got content' );
                 }
             },
@@ -44,9 +44,9 @@ sub test_file {
     };
 }
 
-is test_file('js2.js' => 'js2()'), 1, 'got file ok';
+is test_file( 'js2.js' => 'js2()' ), 1, 'got file ok';
 
-is test_file('no.exist' => ''), undef, 'errored';
+is test_file( 'no.exist' => '' ), undef, 'errored';
 like $@, qr{t/static/no\.exist: }, 'died on non-existent file';
 
 done_testing;

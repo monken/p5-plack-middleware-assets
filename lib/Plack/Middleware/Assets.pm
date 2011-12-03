@@ -5,7 +5,8 @@ use strict;
 use warnings;
 
 use base 'Plack::Middleware';
-use Plack::Util::Accessor qw( filename_comments filter content minify files key mtime type expires );
+use Plack::Util::Accessor
+    qw( filename_comments filter content minify files key mtime type expires );
 
 use Digest::MD5 qw(md5_hex);
 use JavaScript::Minifier::XS ();
@@ -13,8 +14,8 @@ use CSS::Minifier::XS        ();
 use HTTP::Date               ();
 
 my %content_types = (
-    css  => 'text/css',
-    js   => 'application/javascript',
+    css => 'text/css',
+    js  => 'application/javascript',
 );
 
 # these can be names or coderefs
@@ -37,6 +38,7 @@ sub _build_content {
 
     $self->filename_comments(1) unless defined $self->filename_comments;
     my $comments = $self->filename_comments;
+
     # use default comment format unless format was specified
     $comments = $self->filename_comments("/* %s */\n")
         if $comments && $comments !~ /%s/;
@@ -46,7 +48,7 @@ sub _build_content {
             "\n",
             map {
                 open my $fh, '<', $_ or die "$_: $!";
-                ($comments ? sprintf($comments, $_) : '') . <$fh>
+                ( $comments ? sprintf( $comments, $_ ) : '' ) . <$fh>
                 } @{ $self->files }
         )
     );
@@ -54,16 +56,17 @@ sub _build_content {
         unless ( $self->type );
 
     $self->minify(
+
         # don't minify if we don't know how
         $minifiers{ $self->type } &&
-            # by default don't minify in development
-            ($ENV{PLACK_ENV} ? $ENV{PLACK_ENV} ne 'development' : 1)
-    )
-        unless ( defined $self->minify );
 
-    if( my $filter = $self->filter ){
+            # by default don't minify in development
+            ( $ENV{PLACK_ENV} ? $ENV{PLACK_ENV} ne 'development' : 1 )
+    ) unless ( defined $self->minify );
+
+    if ( my $filter = $self->filter ) {
         local $_ = $self->content;
-        $self->content( $filter->( $_ ) );
+        $self->content( $filter->($_) );
     }
     $self->content( $self->_minify ) if $self->minify;
 
@@ -76,22 +79,23 @@ sub _minify {
     my $self = shift;
     no strict 'refs';
     my $minify = $self->minify;
-    return $self->content unless
-        my $method = ref($minify) eq 'CODE' ? $minify :
-            $minifiers{ $minify } || $minifiers{ $self->type };
+    return $self->content
+        unless my $method
+            = ref($minify) eq 'CODE'
+        ? $minify
+        : $minifiers{$minify} || $minifiers{ $self->type };
     local $_ = $self->content;
-    return $method->( $_ );
+    return $method->($_);
 }
 
 sub serve {
     my $self         = shift;
     my $type         = $self->type;
-    my $content_type = $content_types{ $type } || $type;
+    my $content_type = $content_types{$type} || $type;
 
     return [
         200,
-        [
-            'Content-Type'   => $content_type,
+        [   'Content-Type'   => $content_type,
             'Content-Length' => length( $self->content ),
             'Last-Modified'  => HTTP::Date::time2str( $self->mtime ),
             'Expires' =>
