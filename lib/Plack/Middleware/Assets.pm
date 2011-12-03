@@ -6,28 +6,20 @@ use warnings;
 
 use base 'Plack::Middleware';
 use Plack::Util::Accessor
-    qw( filename_comments filter content minify files key mtime type expires );
+    qw( separator filter content minify files key mtime type type_class expires extension );
 
 use Digest::MD5 qw(md5_hex);
-use JavaScript::Minifier::XS ();
-use CSS::Minifier::XS        ();
-use HTTP::Date               ();
-
-my %content_types = (
-    css => 'text/css',
-    js  => 'application/javascript',
-);
-
-# these can be names or coderefs
-my %minifiers = (
-    css => 'CSS::Minifier::XS::minify',
-    js  => 'JavaScript::Minifier::XS::minify',
-);
+use HTTP::Date  ();
+use Class::Load ();
 
 sub new {
     my $class = shift;
     my $self  = $class->SUPER::new(@_);
 
+    # set defaults
+    $self->separator(1) unless ( defined $self->separator );
+    $self->minify(1)    unless ( defined $self->minify );
+    $self->filter(1)    unless ( defined $self->filter );
     $self->_build_content;
     return $self;
 }
@@ -36,66 +28,70 @@ sub _build_content {
     my $self = shift;
     local $/;
 
-    $self->filename_comments(1) unless defined $self->filename_comments;
-    my $comments = $self->filename_comments;
+    my $type = $self->type
+        || (
+          ( grep {/\.css$/} @{ $self->files } ) ? 'css'
+        : ( grep {/\.js$/} @{ $self->files } )  ? 'js'
+        : 'plain'
+        );
+    $self->type($type);
+    my $class = __PACKAGE__ . "::Type::$type";
+    eval { Class::Load::load_class($class) }
+        or die "$class could not be loaded: $@";
+    $self->type_class($class);
+
+    my $separator = $self->separator;
 
     # use default comment format unless format was specified
-    $comments = $self->filename_comments("/* %s */\n")
-        if $comments && $comments !~ /%s/;
+    $separator = $class->separator
+        if $separator && $separator !~ /%s/;
 
     $self->content(
         join(
             "\n",
             map {
                 open my $fh, '<', $_ or die "$_: $!";
-                ( $comments ? sprintf( $comments, $_ ) : '' ) . <$fh>
+                ( $separator ? sprintf( $separator, $_ ) : '' ) . <$fh>
                 } @{ $self->files }
         )
     );
-    $self->type( ( grep {/\.css$/} @{ $self->files } ) ? 'css' : 'js' )
-        unless ( $self->type );
 
-    $self->minify(
-
-        # don't minify if we don't know how
-        $minifiers{ $self->type } &&
-
-            # by default don't minify in development
-            ( $ENV{PLACK_ENV} ? $ENV{PLACK_ENV} ne 'development' : 1 )
-    ) unless ( defined $self->minify );
-
-    if ( my $filter = $self->filter ) {
-        local $_ = $self->content;
-        $self->content( $filter->($_) );
-    }
-    $self->content( $self->_minify ) if $self->minify;
+    $self->content( $self->_transform('filter') ) if $self->filter;
+    $self->content( $self->_transform('minify') ) if $self->minify;
 
     $self->key( md5_hex( $self->content ) );
     my @mtime = map { ( stat($_) )[9] } @{ $self->files };
     $self->mtime( ( reverse( sort(@mtime) ) )[0] );
 }
 
-sub _minify {
-    my $self = shift;
-    no strict 'refs';
-    my $minify = $self->minify;
+sub _transform {
+    my ( $self, $transform ) = @_;
     return $self->content
-        unless my $method
-            = ref($minify) eq 'CODE'
-        ? $minify
-        : $minifiers{$minify} || $minifiers{ $self->type };
+        if ( $transform ne 'minify'
+        && $ENV{PLACK_ENV}
+        && $ENV{PLACK_ENV} eq 'development' );
+    no strict 'refs';
+    my $run = $self->$transform;
+    my $method;
+    if ( ref $run eq 'CODE' ) {
+        $method = $run;
+    }
+    elsif ( $run && $self->type_class->can($transform) ) {
+        $method = $self->type_class . "::$transform";
+    }
+    return $self->content unless ($method);
+
     local $_ = $self->content;
     return $method->($_);
 }
 
 sub serve {
-    my $self         = shift;
-    my $type         = $self->type;
-    my $content_type = $content_types{$type} || $type;
+    my $self = shift;
+    my $type = $self->type;
 
     return [
         200,
-        [   'Content-Type'   => $content_type,
+        [   'Content-Type'   => $self->type_class->content_type,
             'Content-Length' => length( $self->content ),
             'Last-Modified'  => HTTP::Date::time2str( $self->mtime ),
             'Expires' =>
@@ -116,11 +112,40 @@ sub call {
     }
 
     $env->{'psgix.assets'} ||= [];
-    my $url = '/_asset/' . $self->key . '.' . $self->type;
+    my $extension = $self->extension || $self->type_class->extension;
+    my $url = '/_asset/' . $self->key . '.' . $extension;
     push( @{ $env->{'psgix.assets'} }, $url );
     return $self->serve if $env->{PATH_INFO} eq $url;
     return $self->app->($env);
 }
+
+package Plack::Middleware::Assets::Type::plain;
+use strict;
+use warnings;
+
+sub content_type {'text/plain'}
+sub separator    { }
+sub extension    {'txt'}
+
+package Plack::Middleware::Assets::Type::css;
+use strict;
+use warnings;
+use base 'Plack::Middleware::Assets::Type::plain';
+use CSS::Minifier::XS qw(minify);
+
+sub content_type {'text/css'}
+sub separator    {"/* %s */\n"}
+sub extension    {'css'}
+
+package Plack::Middleware::Assets::Type::js;
+use strict;
+use warnings;
+use base 'Plack::Middleware::Assets::Type::plain';
+use JavaScript::Minifier::XS qw(minify);
+
+sub content_type {'application/javascript'}
+sub separator    {"/* %s */\n"}
+sub extension    {'js'}
 
 1;
 
@@ -132,37 +157,54 @@ __END__
   use Plack::Builder;
 
   builder {
-      enable "Assets",
-          files => [<static/js/*.js>];
-      enable "Assets",
-          files => [<static/css/*.css>],
-          minify => 0;
-      $app;
+    enable Assets => ( files => [<static/js/*.js>] );
+    enable Assets => (
+        files  => [<static/css/*.css>],
+        minify => 0
+    );
+    $app;
   };
+
 
   # or customize your assets as desired:
 
   builder {
-      # concatenate any arbitrary content type
-      enable Assets =>
-          files  => [<static/less/*.less>],
-          type   => 'text/less',
-          minify => 'css';
 
-      # concatenate sass files and transform them into css
-      enable Assets =>
-          files  => [<static/sass/*.sass>],
-          type   => 'text/css',
-          filter => sub { Text::Sass->new->sass2css( shift ) },
-          minify => 'css';
+    # concatenate sass files and transform them into css
+    enable Assets => (
+        files  => [<static/sass/*.sass>],
+        type   => 'css',
+        filter => sub { Text::Sass->new->sass2css(shift) },
+        minify => 0
+    );
 
-      # pass a coderef for a custom minifier
-      enable Assets =>
-          files  => [<static/any/*.txt>],
-          filter => sub { uc shift },
-          minify => sub { s/ +/\t/g; $_ };
-      $app;
+    # pass a coderef for a custom minifier
+    enable Assets => (
+        files  => [<static/any/*.txt>],
+        filter => sub {uc},
+        minify => sub { s/ +/\t/g; $_ }
+    );
+
+    # concatenate any arbitrary content type
+    enable Assets => (
+        files => [<static/less/*.less>],
+        type  => 'less'
+    );
+
+    $app;
   };
+
+
+
+  
+  # since this module ships only with the types css and js,
+  # you have to implement the less type yourself:
+  
+  package Plack::Middleware::Assets::Type::less;
+  use base 'Plack::Middleware::Assets::Type::css';
+  use CSS::Minifier::XS qw(minify);
+  use CSS::LESSp ();
+  sub filter { CSS::LESSp->parse(@_) }
 
   # $env->{'psgix.assets'}->[0] points at the first asset.
 
@@ -191,7 +233,7 @@ to the files.
 
 =over 4
 
-=item filename_comments
+=item separator
 
 By default files are prepended with C</* filename */\n>
 before being concatenated.
@@ -201,7 +243,7 @@ Set this to false to disable these comments.
 If set to a string containing a C<%s>
 it will be passed to C<sprintf> with the file name.
 
-    filename_comments => "# %s\n"
+    separator => "# %s\n"
 
 =item files
 
@@ -219,18 +261,14 @@ This will be called before it is minified (if C<minify> is enabled).
 =item minify
 
 Value to indicate whether to minify or not. Defaults to C<1>.
-
-Besides a boolean this can also be a string to use a predefined
-minifier (which can be useful if you change the type).
-Currently minifiers are defined for C<css> and C<js>.
-
 This can also be a coderef which works the same as L</filter>.
 
 =item type
 
 Type of the asset.
-Predefined types include C<css> and C<js>.
-If set to an arbitrary type this will become the C<Content-Type>.
+Predefined types include C<css> and C<js>. Additional types can be implemented
+by creating a new class in the C<Plack::Middleware::Assets::Type> namespace.
+See the L</SYNOPSIS> for an example.
 
 An attempt to guess the correct value is made from the file extensions
 but this can be set explicitly if you are using non-standard file extensions.
@@ -238,6 +276,10 @@ but this can be set explicitly if you are using non-standard file extensions.
 =item expires
 
 Time in seconds from now (i.e. C<time>) until the resource expires.
+
+=item extension
+
+File extension that is appended to the asset's URI.
 
 =back
 

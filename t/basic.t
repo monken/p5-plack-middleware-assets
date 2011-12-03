@@ -16,9 +16,16 @@ BEGIN {
         no warnings 'redefine';
         eval
             "*Plack::Middleware::Assets::$_ = sub { \$_[0]->{$_} = \$_[1] if \@_ > 1; \$_[0]->{$_} };"
-            for qw(filename_comments filter mtime minify type);
+            for qw(separator filter mtime minify type);
     }
 }
+
+package Plack::Middleware::Assets::Type::less;
+use base 'Plack::Middleware::Assets::Type::css';
+use CSS::Minifier::XS qw(minify);
+sub content_type {'text/less'}
+
+package main;
 
 my $app = builder {
 
@@ -28,41 +35,39 @@ my $app = builder {
         files  => [<t/static/*.css>],
         minify => 0;
     enable "Assets", files => [<t/static/*.js>], minify => 0, type => 'css';
-    enable "Assets", files => [<t/static/*.css>], minify => 2, expires => 300;
+    enable "Assets", files => [<t/static/*.css>], minify => 1, expires => 300;
 
     my $d = 't/static';
-    enable "Assets", files => ["$d/l1.less"], type => 'text/less';
+    enable "Assets", files => ["$d/l1.less"];
     enable "Assets",
         files             => ["$d/l2.less"],
-        type              => 'text/less',
-        filename_comments => 0,
+        separator => 0,
         minify            => 1;
     enable "Assets",
         files  => ["$d/l3.less"],
-        type   => 'text/less',
-        minify => 'css';
+        type   => 'less';
     enable "Assets",
         files  => [ glob "$d/l*.less" ],
-        type   => 'css',
-        minify => 'js';
+        type   => 'js',
+        minify => 1;
     enable "Assets",
         files             => ["$d/l1.less"],
-        type              => 'text/plain',
-        filename_comments => 0,
+        type              => 'plain',
+        separator => 0,
         minify            => 0,
         filter            => sub { uc shift };
     enable "Assets",
         files             => ["$d/l2.less"],
-        type              => 'text/plain',
-        filename_comments => 0,
+        separator => 0,
         minify            => 0,
         filter            => sub { tr/lo2/pi9/; $_ };
     enable "Assets",
         files             => ["$d/l3.less"],
-        type              => 'text/less',
-        filename_comments => "!{%s}\n",
+        type              => 'less',
+        separator => "!{%s}\n",
         minify            => sub { s/\s+/\t/g; $_ },
-        filter => sub {uc};
+        filter => sub {uc},
+        extension => 'less';
     return sub {
         my $env = shift;
         [   200,
@@ -139,9 +144,8 @@ css2},
         {
             my $res = $cb->( GET 'http://localhost' . $assets->[4] );
             is( $res->code, 200 );
-            is( $res->content_type, 'text/less', 'arbitrary content type' );
+            is( $res->content_type, 'text/plain', 'arbitrary content type' );
             is( $res->content, <<LESS,
-/* t/static/l1.less */
 .l1 {
   top: 1;
 }
@@ -153,7 +157,7 @@ LESS
         {
             my $res = $cb->( GET 'http://localhost' . $assets->[5] );
             is( $res->code, 200 );
-            is( $res->content_type, 'text/less', 'arbitrary content type' );
+            is( $res->content_type, 'text/plain', 'arbitrary content type' );
             is( $res->content, <<LESS,
 .l2 {
   top: 2;
@@ -174,7 +178,7 @@ LESS
         {
             my $res = $cb->( GET 'http://localhost' . $assets->[7] );
             is( $res->code,         200 );
-            is( $res->content_type, 'text/css' );
+            is( $res->content_type, 'application/javascript' );
             is( $res->content,
                 qq<.l1{top:1;}\n.l2{top:2;}\n.l3{top:3;}>,
                 'minify using alternate minifier'
@@ -192,6 +196,7 @@ LESS
         }
 
         {
+            like( $assets->[9], qr/\.txt$/, '.txt file extension' );
             my $res = $cb->( GET 'http://localhost' . $assets->[9] );
             is( $res->code, 200 );
             is( $res->content_type, 'text/plain', 'arbitrary content type' );
@@ -202,6 +207,7 @@ LESS
         }
 
         {
+            like( $assets->[10], qr/\.less$/, '.less file extension' );
             my $res = $cb->( GET 'http://localhost' . $assets->[10] );
             is( $res->code, 200 );
             is( $res->content_type, 'text/less', 'arbitrary content type' );
