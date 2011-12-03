@@ -5,12 +5,23 @@ use strict;
 use warnings;
 
 use base 'Plack::Middleware';
-__PACKAGE__->mk_accessors(qw(content minify files key mtime type expires));
+use Plack::Util::Accessor qw( filename_comments filter content minify files key mtime type expires );
 
 use Digest::MD5 qw(md5_hex);
 use JavaScript::Minifier::XS ();
 use CSS::Minifier::XS        ();
 use HTTP::Date               ();
+
+my %content_types = (
+    css  => 'text/css',
+    js   => 'application/javascript',
+);
+
+# these can be names or coderefs
+my %minifiers = (
+    css => 'CSS::Minifier::XS::minify',
+    js  => 'JavaScript::Minifier::XS::minify',
+);
 
 sub new {
     my $class = shift;
@@ -23,18 +34,37 @@ sub new {
 sub _build_content {
     my $self = shift;
     local $/;
+
+    $self->filename_comments(1) unless defined $self->filename_comments;
+    my $comments = $self->filename_comments;
+    # use default comment format unless format was specified
+    $comments = $self->filename_comments("/* %s */\n")
+        if $comments && $comments !~ /%s/;
+
     $self->content(
         join(
             "\n",
             map {
                 open my $fh, '<', $_ or die "$_: $!";
-                "/* $_ */\n" . <$fh>
+                ($comments ? sprintf($comments, $_) : '') . <$fh>
                 } @{ $self->files }
         )
     );
     $self->type( ( grep {/\.css$/} @{ $self->files } ) ? 'css' : 'js' )
         unless ( $self->type );
-    $self->minify(1) unless ( defined $self->minify );
+
+    $self->minify(
+        # don't minify if we don't know how
+        $minifiers{ $self->type } &&
+            # by default don't minify in development
+            ($ENV{PLACK_ENV} ? $ENV{PLACK_ENV} ne 'development' : 1)
+    )
+        unless ( defined $self->minify );
+
+    if( my $filter = $self->filter ){
+        local $_ = $self->content;
+        $self->content( $filter->( $_ ) );
+    }
     $self->content( $self->_minify ) if $self->minify;
 
     $self->key( md5_hex( $self->content ) );
@@ -45,20 +75,23 @@ sub _build_content {
 sub _minify {
     my $self = shift;
     no strict 'refs';
-    my $method
-        = $self->type eq 'css'
-        ? 'CSS::Minifier::XS::minify'
-        : 'JavaScript::Minifier::XS::minify';
-    return $method->( $self->content );
+    my $minify = $self->minify;
+    return $self->content unless
+        my $method = ref($minify) eq 'CODE' ? $minify :
+            $minifiers{ $minify } || $minifiers{ $self->type };
+    local $_ = $self->content;
+    return $method->( $_ );
 }
 
 sub serve {
     my $self         = shift;
-    my $content_type = return [
+    my $type         = $self->type;
+    my $content_type = $content_types{ $type } || $type;
+
+    return [
         200,
-        [     'Content-Type' => $self->type eq 'css'
-            ? 'text/css'
-            : 'application/javascript',
+        [
+            'Content-Type'   => $content_type,
             'Content-Length' => length( $self->content ),
             'Last-Modified'  => HTTP::Date::time2str( $self->mtime ),
             'Expires' =>
@@ -103,6 +136,30 @@ __END__
       $app;
   };
 
+  # or customize your assets as desired:
+
+  builder {
+      # concatenate any arbitrary content type
+      enable Assets =>
+          files  => [<static/less/*.less>],
+          type   => 'text/less',
+          minify => 'css';
+
+      # concatenate sass files and transform them into css
+      enable Assets =>
+          files  => [<static/sass/*.sass>],
+          type   => 'text/css',
+          filter => sub { Text::Sass->new->sass2css( shift ) },
+          minify => 'css';
+
+      # pass a coderef for a custom minifier
+      enable Assets =>
+          files  => [<static/any/*.txt>],
+          filter => sub { uc shift },
+          minify => sub { s/ +/\t/g; $_ };
+      $app;
+  };
+
   # $env->{'psgix.assets'}->[0] points at the first asset.
 
 =head1 DESCRIPTION
@@ -114,7 +171,7 @@ the C<mtime> of the most recently changed file. The C<Expires>
 header is set to one month in advance. Set
 L</expires> to change the time of expiry.
 
-The concatented and minified content is cached in memory.
+The concatenated and minified content is cached in memory.
 
 =head1 DEVELOPMENT MODE
 
@@ -130,19 +187,49 @@ to the files.
 
 =over 4
 
+=item filename_comments
+
+By default files are prepended with C</* filename */\n>
+before being concatenated.
+
+Set this to false to disable these comments.
+
+If set to a string containing a C<%s>
+it will be passed to C<sprintf> with the file name.
+
+    filename_comments => "# %s\n"
+
 =item files
 
 Files to concatenate.
 
+=item filter
+
+A coderef that can process/transform the content.
+
+The current content will be passed in as C<$_[0]>
+and also available via C<$_> for convenience.
+
+This will be called before it is minified (if C<minify> is enabled).
+
 =item minify
 
-Boolean to indicate whether to minify or not. Defaults to C<1>.
+Value to indicate whether to minify or not. Defaults to C<1>.
+
+Besides a boolean this can also be a string to use a predefined
+minifier (which can be useful if you change the type).
+Currently minifiers are defined for C<css> and C<js>.
+
+This can also be a coderef which works the same as L</filter>.
 
 =item type
 
-Type of the asset. Either C<css> or C<js>. This is derived automatically
-from the file extensions but can be set explicitly if you are using
-non-standard file extensions.
+Type of the asset.
+Predefined types include C<css> and C<js>.
+If set to an arbitrary type this will become the C<Content-Type>.
+
+An attempt to guess the correct value is made from the file extensions
+but this can be set explicitly if you are using non-standard file extensions.
 
 =item expires
 
