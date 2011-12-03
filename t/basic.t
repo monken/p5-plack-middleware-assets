@@ -32,6 +32,7 @@ my %test = (
         }
 
         {
+            like( $assets->[0], qr/\.js$/, '.js file extension' );
             my $res = $cb->( GET 'http://localhost' . $assets->[0] );
             is( $res->code,         200 );
             is( $res->content_type, 'application/javascript' );
@@ -39,6 +40,7 @@ my %test = (
         }
 
         {
+            like( $assets->[1], qr/\.css$/, '.css file extension' );
             my $res = $cb->( GET 'http://localhost' . $assets->[1] );
             is( $res->code,         200 );
             is( $res->content_type, 'text/css' );
