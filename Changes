@@ -1,3 +1,7 @@
+1.0.0 2013-12-12
+ - GH#4 Expanded Description section (Gene Boggs)
+ - Mark as stable, bump version to 1.0.0
+
 0.0.3 2011-12-03
  - add file extension to asset uri (James Aitken)
  - don't minify in a development environment (Randy Stauner)
