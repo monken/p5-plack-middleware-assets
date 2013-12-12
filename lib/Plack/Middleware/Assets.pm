@@ -210,16 +210,21 @@ __END__
 
 =head1 DESCRIPTION
 
-Plack::Middleware::Assets concatenates resources like JavaScript and CSS files
-and minifies them. A C<md5> digest is generated and used as
-unique url for the asset. The C<Last-Modified> header is set to
-the C<mtime> of the most recently changed file. The C<Expires>
-header is set to one month in advance by default. Set
-L</expires> to change the time of expiry. An optional filter allows to transform
-the content before it is minified. This can be used to translate
-C<SASS> or C<less> scripts to C<CSS>.
+Plack::Middleware::Assets concatenates JavaScript and CSS files
+and minifies them.
 
-The concatenated and minified content is cached in memory.
+A C<md5> digest is generated and used as the unique url to the
+asset.  For instance, if the first C<psgix.assets> is
+C<static/js/*.js>, then the unique C<md5> url can be used in a
+single HTML C<script> element for all js files.
+
+The C<Last-Modified> header is set to the C<mtime> of the most
+recently changed file.
+
+The C<Expires> header is set to one month in advance. Set
+L</expires> to change the time of expiry.
+
+The concatented and minified content is cached in memory.
 
 =head1 DEVELOPMENT MODE
 
